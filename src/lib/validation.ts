@@ -1,45 +1,86 @@
 import type { Booking, Room } from './rooms';
 
+export type ReasonCode =
+  | 'none'
+  | 'no_room'
+  | 'invalid_interval'
+  | 'start_in_past'
+  | 'too_long'
+  | 'blocked'
+  | 'overlap';
+
 export interface CheckRequest {
-  room: Room;
-  start: number;
-  end: number;
+  room: Room | null;
+  start: number; // minutes after midnight, NaN when missing
+  duration: number; // whole minutes, NaN when missing
   nowMinutes: number;
   bookings: Booking[];
 }
 
 export interface CheckResult {
   available: boolean;
-  reason: string;
+  reasonCode: ReasonCode;
+  message: string;
 }
 
 const MAX_DURATION = 120;
 
-export function checkAvailability({ room, start, end, nowMinutes, bookings }: CheckRequest): CheckResult {
-  if (Number.isNaN(start) || Number.isNaN(end)) {
-    return { available: false, reason: 'Please provide both a start and an end time.' };
+export function checkAvailability({
+  room,
+  start,
+  duration,
+  nowMinutes,
+  bookings,
+}: CheckRequest): CheckResult {
+  if (!room) {
+    return { available: false, reasonCode: 'no_room', message: 'Please select a room.' };
   }
-  if (start < 0 || end > 1440 || start >= end) {
+  const intervalValid =
+    Number.isInteger(start) &&
+    Number.isInteger(duration) &&
+    start >= 0 &&
+    duration > 0 &&
+    start + duration <= 1440;
+  if (!intervalValid) {
     return {
       available: false,
-      reason: 'Times must be within the day (0:00–24:00) and the start must be before the end.',
+      reasonCode: 'invalid_interval',
+      message: 'Enter a start time and a duration above 0 minutes that ends by 24:00.',
     };
   }
   if (start <= nowMinutes) {
-    return { available: false, reason: 'The start time must be after the current time.' };
+    return {
+      available: false,
+      reasonCode: 'start_in_past',
+      message: 'The start time must be after the current time.',
+    };
   }
-  if (end - start > MAX_DURATION) {
-    return { available: false, reason: `Bookings are limited to ${MAX_DURATION} minutes or less.` };
+  if (duration > MAX_DURATION) {
+    return {
+      available: false,
+      reasonCode: 'too_long',
+      message: `Bookings are limited to ${MAX_DURATION} minutes or less.`,
+    };
   }
   if (room.blocked) {
-    return { available: false, reason: `${room.name} is currently blocked and cannot be booked.` };
+    return {
+      available: false,
+      reasonCode: 'blocked',
+      message: `${room.name} is currently blocked and cannot be booked.`,
+    };
   }
+  const end = start + duration;
   const conflict = bookings.find((b) => b.roomId === room.id && start < b.end && end > b.start);
   if (conflict) {
     return {
       available: false,
-      reason: `This overlaps an existing booking (${conflict.owner}). Touching endpoints are fine, overlaps are not.`,
+      reasonCode: 'overlap',
+      message: `This overlaps an existing booking (${conflict.owner}).`,
     };
   }
-  return { available: true, reason: `${room.name} is available for your selected interval.` };
+  return {
+    available: true,
+    reasonCode: 'none',
+    message: `${room.name} is available for your selected interval.`,
+  };
 }

@@ -1,11 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { CalendarClock, CheckCircle2, XCircle, Clock, Ban } from 'lucide-react';
 import { INITIAL_BOOKINGS, ROOMS, minutesToLabel, timeToMinutes } from '@/lib/rooms';
-import type { Booking } from '@/lib/rooms';
+import type { Booking, Room } from '@/lib/rooms';
 import { checkAvailability } from '@/lib/validation';
-
-const DAY_START = 8 * 60;
-const DAY_END = 22 * 60;
+import type { CheckResult } from '@/lib/validation';
 
 function currentTimeMinutes(): number {
   const d = new Date();
@@ -18,15 +16,17 @@ function currentLabel(now: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-interface Props {
-  nowMinutes: number;
+interface RoomCardProps {
+  room: Room;
   bookings: Booking[];
+  testClock: string; // HH:MM, empty string means use the real clock
 }
 
-function RoomCard({ room, nowMinutes, bookings }: Props) {
+function RoomCard({ room, bookings, testClock }: RoomCardProps) {
   const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
-  const [checked, setChecked] = useState<ReturnType<typeof checkAvailability> | null>(null);
+  const [duration, setDuration] = useState('');
+  const [checked, setChecked] = useState<CheckResult | null>(null);
+  const [usedNow, setUsedNow] = useState<number | null>(null);
 
   const todaysBookings = bookings
     .filter((b) => b.roomId === room.id)
@@ -34,11 +34,13 @@ function RoomCard({ room, nowMinutes, bookings }: Props) {
 
   const handleCheck = (e: React.FormEvent) => {
     e.preventDefault();
+    const nowMinutes = testClock ? timeToMinutes(testClock) : currentTimeMinutes();
+    setUsedNow(nowMinutes);
     setChecked(
       checkAvailability({
         room,
         start: timeToMinutes(start),
-        end: timeToMinutes(end),
+        duration: parseInt(duration, 10),
         nowMinutes,
         bookings,
       }),
@@ -82,16 +84,18 @@ function RoomCard({ room, nowMinutes, bookings }: Props) {
           />
         </label>
         <label className="text-sm">
-          <span className="mb-1 block font-medium text-slate-700">End</span>
+          <span className="mb-1 block font-medium text-slate-700">Duration (minutes)</span>
           <input
-            type="time"
-            value={end}
+            type="number"
+            min={1}
+            step={1}
+            placeholder="e.g. 60"
+            value={duration}
             onChange={(e) => {
-              setEnd(e.target.value);
+              setDuration(e.target.value);
               setChecked(null);
             }}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200"
-            required
           />
         </label>
         <button
@@ -116,8 +120,22 @@ function RoomCard({ room, nowMinutes, bookings }: Props) {
             <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           )}
           <span>
-            <strong className="font-semibold">{available ? 'Available' : 'Unavailable'}</strong>{' '}
-            — {checked.reason}
+            <strong className="font-semibold">{available ? 'Available' : 'Unavailable'}</strong>
+            <span
+              className={`ml-2 rounded px-1.5 py-0.5 font-mono text-xs ${
+                available ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+              }`}
+            >
+              {checked.reasonCode}
+            </span>
+            {' — '}
+            {checked.message}
+            {usedNow !== null && (
+              <span className="mt-1 block text-xs text-slate-500">
+                Checked against current time {currentLabel(usedNow)}
+                {testClock ? ' (test clock)' : ' (real clock)'}.
+              </span>
+            )}
           </span>
         </div>
       )}
@@ -147,13 +165,7 @@ function RoomCard({ room, nowMinutes, bookings }: Props) {
 }
 
 export default function App() {
-  const [nowMinutes, setNowMinutes] = useState(currentTimeMinutes);
-  const [showNowNotice, setShowNowNotice] = useState(false);
-
-  const dayOpen = useMemo(
-    () => nowMinutes < DAY_END,
-    [nowMinutes],
-  );
+  const [testClock, setTestClock] = useState('');
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -168,41 +180,46 @@ export default function App() {
               <p className="text-sm text-slate-500">Find a free study or class room, instantly.</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setNowMinutes(currentTimeMinutes());
-              setShowNowNotice(true);
-              window.setTimeout(() => setShowNowNotice(false), 2500);
-            }}
-            className="self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Refresh current time
-          </button>
+          <label className="text-sm sm:text-right">
+            <span className="mb-1 block font-medium text-slate-700">
+              Test clock (simulated)
+              <span className="ml-1 font-normal text-slate-400">leave empty for real time</span>
+            </span>
+            <input
+              type="time"
+              value={testClock}
+              onChange={(e) => setTestClock(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200 sm:w-40"
+            />
+          </label>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         <div className="mb-6 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-600">
-            Current time:{' '}
-            <strong className="font-semibold text-slate-900">{currentLabel(nowMinutes)}</strong>
-            {dayOpen ? (
-              <span className="text-slate-500"> · bookings run until 10:00 PM</span>
+            {testClock ? (
+              <>
+                Simulated current time:{' '}
+                <strong className="font-semibold text-slate-900">{testClock}</strong>
+              </>
             ) : (
-              <span className="text-slate-500"> · the booking day has ended</span>
+              <>
+                Real current time:{' '}
+                <strong className="font-semibold text-slate-900">
+                  {currentLabel(currentTimeMinutes())}
+                </strong>
+              </>
             )}
           </p>
-          {showNowNotice && (
-            <span className="rounded-md bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700">
-              Current time updated
-            </span>
-          )}
+          <p className="text-xs text-slate-400">
+            Rules are applied in the contract's order; the first failing rule is shown.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {ROOMS.map((room) => (
-            <RoomCard key={room.id} room={room} nowMinutes={nowMinutes} bookings={INITIAL_BOOKINGS} />
+            <RoomCard key={room.id} room={room} bookings={INITIAL_BOOKINGS} testClock={testClock} />
           ))}
         </div>
 
