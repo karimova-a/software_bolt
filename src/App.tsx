@@ -69,7 +69,7 @@ function RoomCard({ room, bookings, testClock }: RoomCardProps) {
         )}
       </div>
 
-      <form onSubmit={handleCheck} className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_1fr_auto]">
+      <form noValidate onSubmit={handleCheck} className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_1fr_auto]">
         <label className="text-sm">
           <span className="mb-1 block font-medium text-slate-700">Start</span>
           <input
